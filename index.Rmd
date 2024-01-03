@@ -1,0 +1,841 @@
+---
+title: "La régionalisation du commerce mondial : mythe ou réalité ?"
+subtitle: "Analyse à partir de la base CHELEM (1970-2020)"
+author: "Claude Grasland"
+date: "2 Janvier 2024"
+output :
+  html_document:
+    toc: true
+    toc_depth: 3
+bibliography: references.bib
+---
+
+## Objectifs
+
+Dans cette note exploratoire, nous proposons d'explorer la base *CHELEM* du CEPII à l'aide de la grille d'agrégation des pays du monde *VERTICALES* mise au point à partir des idées de Jean-Louis Guigou et des chercheurs de l'IPEMED. Le découpage proposé est organisé à deux niveaux, en 4 régions (VER1) elle-mêmes subdivisées en 12 sous-régions (VER2).
+
+La base CHELEM, même si elle offre une résolution spatiale moindre que d'autres bases (94 états ou groupes d'états) permet de décomposer les échanges par type de produit ce qui permet de mettre à jour différentes formes de régionalisation en fonction des produits concernés.
+
+```{r, echo=F, warning=F, message=F, error=F}
+library(sf,quietly = T)
+library(mapsf)
+library(dplyr, quietly=T)
+library(data.table, quietly = T)
+library(ggplot2)
+library(ggpubr)
+library(plotly)
+library(RColorBrewer)
+library(visNetwork) 
+theme_set(theme_pubr())
+knitr::opts_chunk$set(echo = FALSE,comment = "",warning = FALSE,error = FALSE,message = FALSE)
+
+
+```
+
+## I. PRESENTATION DES DONNEES ET AGREGATS
+
+L'idée de base est de proposer une lecture du Monde à partir de 4 régions "verticales" disposées du Nord au Sud. Trois de ces régions ont déjà été souvent analysées par les chercheurs de l'IPEMED. Mais nous avons jugé intéressant de rajouter une 4e région correspondant au "reste du Monde".
+
+```{r load}
+dt<-readRDS("data/MYCHELEM_V2.RDS")
+dt$t<-as.numeric(dt$t)
+```
+
+
+
+### 94 unités d'observation
+
+```{r}
+
+chelem<-readRDS("data/World_Chelem.RDS") 
+
+ns<-c("MLT","BLX","MOA","AFA","AFZ","SAF","AMA","AOZ","CAL","AOA","CAU","CEA","GOA")
+agr<-chelem %>% filter(code %in% ns)
+
+
+mypal<-rainbow(20)
+mf_theme("agolalight")
+mf_map(chelem, type="base", col="lightyellow")
+mf_map(agr,
+       type = "typo",
+       var="name",
+       leg_pos = "left",
+       leg_title = "Groupes",
+       add=T,
+       pal=mypal
+       )
+
+mf_layout(title = "Agrégats de pays dans la base CHELEM",
+          credits = "Source : CEPII, Base CHELEM",
+          frame = T,
+          arrow = F
+          )
+
+```
+
+-   **Commentaire** : Afin d'assurer la continuité de la collecte des données commerciales sur une période très longue (1968- Présent), la base CHELEM a mise en place des agrégats de pays qui rendent plus facile la maintenance de la base mais réduisent la résolution géographique de l'analyse et éliminent de facto une partie des flux internationaux. Il s'agit souvent de groupes de petits pays jouant un faible rôle dans le commerce mondial(Amérique centrale, états insulaires du Pacifique, Cambodge et Laos, ...). Mais dans deux cas au moins les agrégats s'avèrent plus problématiques : (1) pour l'Afrique subsaharienne où seuls quelques pays sont identifiés individuellement (2) pour les états du Proche et Moyen Orient où l'un des agrégats mélange Iran, Irak et Koweit et un autre Syrie, Liban et Jordanie.
+
+### 9 groupes de produits
+
+La base CHELEM a réussi l'exploit de constituer une catégorisation des produits échangés sur plus de 50 ans malgré l'évolution des types de production et les changements de nomenclature. Nous adoptons ici une version simplifié de cette classification en 9 familles de produits correspondant à différents niveaux d'insertion dans les chaînes de valeur et la division internationale du travail (@grasland2010, @grataloup2014)
+
+- (1) ENE : Energie
+- (2) MIN : Mines, produits intermédiaires
+- (3) AGR : Produits agricoles, alimentation
+- (4) TEX : Textile, habillement
+- (5) ELE : Electronique
+- (6) EQU : Equipement, Machines
+- (7) TRA : Transport
+- (8) CHE : Chimie, Pharmacie
+- (9) MIS : Divers
+
+
+
+```{r}
+Fkt<-dt[k!="TOT",.(Fkt=sum(Fijkt)),.(k,t)]
+Ft<-dt[k!="TOT",.(Ft=sum(Fijkt)),.(t)]
+tab<-left_join(Fkt,Ft) %>% mutate(pct=100*Fkt/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=k) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Echanges commerciaux mondiaux en 9 groupes",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+```
+
+- **Commentaires** : Le graphique montre que les 9 groupes de produits réalisent une partition relativement équilibrée des échanges mondiaux tout en permettant de suivre les tendances longues à la hausse (électronique, chimie), la stabilité (transport,textile )  ou à la baisse (agriculture) de la part de chaque produit en valeur. Les fluctuations les plus importantes concernent les produits énergétiques qui voient leur part osciller entre 8% et 24%  selon les années. La série de données s'arrêtant en 2020, on ne voit pas l'accroissement spectaculaire de leur part qui intervient à partir de 2022 en raison de la crise russo-ukrainienne. On ne voit pas non plus l'effet corrélatif du renchérissement des produits agricoles. 
+
+### 3 régions verticales + 1 région résiduelle
+
+```{r}
+gui1<-readRDS("data/Chelem_Reg_1.RDS") %>% filter(GUI1 !="G0")
+gui1$code<-paste(gui1$GUI1,gui1$GUI1_Name,sep=":")
+mypal<-c("Blue","Red","Orange","Green")
+mf_theme("agolalight")
+mf_map(gui1,
+       type = "typo",
+       var="code",
+       leg_pos = "left",
+       leg_title = "Régions",
+       pal=mypal,
+       )
+mf_layout(title = "Découpage vertical en 4 régions",
+          credits = "Source : adapté de J.L. Guigou & al., IPEMED, 2023",
+          frame = T,
+          arrow = F
+          )
+
+```
+
+-   **Commentaire** : Les trois premières régions reprennent le découpage proposé par J.L. Guigou et les chercheurs de l'IPEMED à une différence près : les pays pétroliers du Golfe persique n'ont pas été rattachés à la verticale Europe-Méditerranée-Afrique car leur commerce est clairement mondialisé et ne se rattache à aucune verticale.
+
+Quelques rattachements non voulus ont par ailleurs été imposés par la structure de la base CHELEM du fait de l'existence d'agrégats de pays non séparables (e.g. rattachement de l'Afghanistan à l'ensemble Asie-Pacifique ou du Yemen à l'ensemble Europe-Méditerranée-Afriqe)
+
+La quatrième région "reste du Monde" n'est pas a priori une zone d'intégration régionale mais elle doit être prise en compte pour compléter l'analyse et lui donner une dimension globale. Elle comporte des pays qui sont tiraillés entre plusieurs orientations régionales à l'instar de la Russie, L'Inde ou l'Arabie Saoudite.
+
+```{r}
+Fit<-dt[k=="TOT",.(Fit=sum(Fijkt)),.(reg1i,t)]
+Ft<-dt[k=="TOT",.(Ft=sum(Fijkt)),.(t)]
+tab<-left_join(Fit,Ft) %>% mutate(pct=100*Fit/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=reg1i) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Part des exportations mondiales (y compris internes)",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+
+Fjt<-dt[k=="TOT",.(Fjt=sum(Fijkt)),.(reg1j,t)]
+Ft<-dt[k=="TOT",.(Ft=sum(Fijkt)),.(t)]
+tab<-left_join(Fjt,Ft) %>% mutate(pct=100*Fjt/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=reg1j) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Part des importations mondiales (y compris internes)",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+```
+
+- **Commentaire** : En apparence la région Europe-Méditerranée-Afrique semble jouer le rôle le plus important dans les importations comme dans les exportations mondiales, même si sa part diminue au fil du temps au profit de la région Asie-Pacifique. Toutefois **ce résultat est dans une large mesure une illusion** liée au fait que cette région est subdivisée en un très grand nombre de pays qui échangent avec leur voisins, à la différence de l'Amérique ou de l'Asie pacifique pour lesquels le trafic intérieur aux grands pays n'est pas visible. La vision des échanges serait à l'évidence très différente si on avait pris en compte les échanges entre les provinces chinoises ou les états fédérés des USA. 
+
+
+### 12 sous-régions
+
+```{r}
+
+gui2<-readRDS("data/Chelem_Reg_2.RDS") %>% filter(GUI2 !="G01")
+gui2$code<-paste(gui2$GUI2,gui2$GUI2_Name)
+
+
+mypal<-c(rev(brewer.pal(5,"Blues")[1:3]),
+         rev(brewer.pal(5, "Reds")[1:3]),
+        rev(brewer.pal(5,"YlOrBr")[1:3]),
+         rev(brewer.pal(5,"Greens")[1:3])
+
+         )
+#mypal<-rainbow(12)
+mf_theme("agolalight")
+mf_map(gui2,
+       type = "typo",
+       var="code",
+       leg_pos = "left",
+       leg_title = "Régions",
+       pal=mypal,
+       )
+
+mf_layout(title = "Découpage vertical en 12 sous régions",
+          credits = "Source : C. Grasland, 2024",
+          frame = T,
+          arrow = F
+          )
+
+```
+
+-   **Commentaire :** Chacune des quatre régions a été découpée en 3 sous-régions en suivant à nouveau approximativement les propositions de J.L. Guigou et de l'IPEMED mais avec quelques adaptations. Nous avons notamment choisi de rattacher le Mexique à l'Amérique Centrale plutôt que l'Amérique du Nord dans la mesure où la période d'étude est longue (1968-2020) et ne correspond pas à l'existence permanente de l'ALENA. Nous avons par ailleurs maintenu l'ex-URSS dans une seule région (exception faite des pays baltes) afin de pouvoir suivre son évolution sur toute la période.
+
+```{r}
+Fit<-dt[k=="TOT" & reg2i!=reg2j,.(Fit=sum(Fijkt)),.(reg1i,t)]
+Ft<-dt[k=="TOT"  & reg2i!=reg2j,.(Ft=sum(Fijkt)),.(t)]
+tab<-left_join(Fit,Ft) %>% mutate(pct=100*Fit/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=reg1i) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Part des exportations vers d'autres sous-régions",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+
+Fjt<-dt[k=="TOT" & reg2i!=reg2j,.(Fjt=sum(Fijkt)),.(reg1j,t)]
+Ft<-dt[k=="TOT" & reg2i!=reg2j,.(Ft=sum(Fijkt)),.(t)]
+tab<-left_join(Fjt,Ft) %>% mutate(pct=100*Fjt/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=reg1j) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Part des importations depuis d'autres sous-régions",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+```
+
+- **Commentaire** : En éliminant les échanges internes à chacune des sous-régions on obtient une mesure plus juste du rôle de chacune des quatre grandes régions dans le commerce mondial. La région Europe-Méditerranée-Afrique totalisait 40 à 45% des importations ou exportations dans les années 1970 contre 20 à 25% en 2020. La région Amériques conserve une part relativement stable d'environ 30% des importations au cours du temps  mais voit sa part des exportations diminuer de 30 à 20%. La région Asie Pacifique voit quant à elle sa part des eportations mondiales doubler, passant de 16 à 43%. La progression est également remarquable pour les importations qui passent de 18 à 33%. Quant à la région résiduelle "reste du monde" elle joue un rôle relativement mineur dans les importations tout au long de la période (10 à 15%) mais connaît des fluctuations forte dans sa part des exportations (8 à 22%) en raison des variations de prix des produits énergétiques. 
+
+
+
+
+## II. ANALYSE MACROSCOPIQUE DE L'INTEGRATION REGIONALE
+
+Dans cette première partie on procède à une synthèse rapide des échanges commerciaux entre les quatres grandes régions afin de déterminer la part du commerce interne à chacune de celles-ci, puisles variations de l'intégration régionale par produit et enfin par région.
+
+### Tous produits confondus
+
+```{r}
+dt$intra<-as.factor(dt$reg1i==dt$reg1j)
+levels(dt$intra)<-c("Inter", "Intra")
+
+int<-dt[k=="TOT",.(Fijkt),.(t,intra)]
+tab<-dcast(int,formula=t~intra,value.var="Fijkt",fun.aggregate = sum)
+
+tab$intra_pct<-100*tab$Intra/(tab$Inter+tab$Intra)
+tab$t<-as.numeric(tab$t)
+g<-ggplot(tab, aes(x=t, y=intra_pct))+
+       geom_line(col="red") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux intra-régionaux") +
+       ggtitle("Intégration régionale : Tous produits",subtitle = "Source : CEPII, Base CHELEM") +
+
+     geom_vline(xintercept = 1973, lty=2, col="blue")+
+    geom_text(aes(x=1973, y=50, label="1973"),col="blue")+
+     geom_vline(xintercept = 1981, lty=2, col="blue")+
+    geom_text(aes(x=1981, y=50, label="1981"),col="blue")+
+       geom_vline(xintercept = 1991, lty=2, col="blue")+
+    geom_text(aes(x=1991, y=50, label="1991"),col="blue")+
+       geom_vline(xintercept = 2001, lty=2,col="blue")+
+    geom_text(aes(x=2001, y=50, label="2001"),col="blue")+
+       geom_vline(xintercept = 2012, lty=2,col="blue")+
+    geom_text(aes(x=2012, y=50, label="2012"),col="blue")
+ggplotly(g)
+```
+
+-   **Commentaire :** La figure représente la part des flux commerciaux (tous produits confondus) qui ont pour origine et destination une même région (selon le découpage en quatre proposé précédemment). Le niveau d'intrégration intra-régionale demeure élevé tout au long de la période (entre 52% et 62%) mais présente des oscillations importantes qui semblent liées à des événements tels que les deux chocs pétroliers de 1973 et 1981, la fin de l'Union Soviétique (1991) ou l'entrée de la Chine à l'OMC (2001).
+
+### Par famille de produits
+
+```{r}
+dt$intra<-as.factor(dt$reg1i==dt$reg1j)
+levels(dt$intra)<-c("Inter", "Intra")
+dt$k<-as.factor(dt$k)
+levels(dt$k)<-c("Energie","Minerais","Agriculture","Textile","Electronique","Equipement","Transport","Chimie","Divers","Total")
+int<-dt[k!="Total",.(Fijkt),.(t,intra,k)]
+tab<-dcast(int,formula=t+k~intra,value.var="Fijkt",fun.aggregate = sum)
+
+tab$intra_pct<-100*tab$Intra/(tab$Inter+tab$Intra)
+tab$t<-as.numeric(tab$t)
+g<-ggplot(tab, aes(x=t, y=intra_pct,col=k))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux intra-régionaux") +
+       ggtitle("Intégration régionale : par produit",subtitle = "Source : CEPII, Base CHELEM")
+
+
+ggplotly(g)
+```
+
+-   **Commentaire :** la décomposition des niveaux d'intégration régionale par famille de produits met en évidence des différences notables, notamment en ce qui concerne les produits énergétiques (gaz, pétrole, charbon, ...) qui voient leur niveau d'intégration diminuer très fortement entre les deux chocs prétroliers (35% en 1977) avant de remonter ensuite mais en restant à un niveau beaucoup plus faible que les autres produits. A contrario, les échanges de produits agricoles qui avaient un niveau d'intégration assez faible dans les années 1970 (environ 50%) connaissent une forte progression dans les années 1980 et deviennent les produits les plus intégrés régionalement avec la chimie et les minerais. Les produits textils connaissent une évolution inverse, en relation avec la concentration croissante de la production en Asie. Sans détailler les autres produits, on remarque que les vingt dernières années (2000-2020) montrent dans la quasi totalité des produits une baisse de l'intégration régionale, qu'il faut probablement mettre en relation avec la montée en puissance de la Chine.
+
+### Europe - Méditerranée - Afrique
+
+```{r}
+
+myreg<-"G1:EurMedAfr"
+
+
+Ft<-dt[reg1i==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fit<-dt[reg1i==myreg,.(Fit=sum(Fijkt)),.(t, reg1j)]
+tab<-left_join(Fit,Ft) %>% mutate(Fit_pct=100*Fit/Ft, region=reg1j)
+g1<-ggplot(tab, aes(x=t, y=Fit_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": Export"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+
+Ft<-dt[reg1j==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fjt<-dt[reg1j==myreg,.(Fjt=sum(Fijkt)),.(t, reg1i)]
+tab<-left_join(Fjt,Ft) %>% mutate(Fjt_pct=100*Fjt/Ft, region=reg1i)
+g1<-ggplot(tab, aes(x=t, y=Fjt_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": import"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+
+
+```
+
+-   **Commentaire** : Même si elle connaît une légère baisse au cours des vingt dernières années, l'intégration de la région Europe-Méditerranée-Afrique demeure très élevée (66-78%) pour les importations comme pour les exportations. **Ce résultat est toutefois à prendre avec précaution** car il s'explique par la très forte fragmentation de l'Europe et les échanges internes à l'Union Européenne qui en résulte mécaniquement. Comme nous le verrons par le suite, la situation d'intégration est beaucoup moins claire lorsqu'on considère les échanges entre l'Europe et la Méditerranée ou l'Europe et l'Afrique subsaharienne.
+
+### Amériques
+
+```{r}
+myreg<-"G2:Amériques"
+
+Ft<-dt[reg1i==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fit<-dt[reg1i==myreg,.(Fit=sum(Fijkt)),.(t, reg1j)]
+tab<-left_join(Fit,Ft) %>% mutate(Fit_pct=100*Fit/Ft, region=reg1j)
+g1<-ggplot(tab, aes(x=t, y=Fit_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": Export"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+
+Ft<-dt[reg1j==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fjt<-dt[reg1j==myreg,.(Fjt=sum(Fijkt)),.(t, reg1i)]
+tab<-left_join(Fjt,Ft) %>% mutate(Fjt_pct=100*Fjt/Ft, region=reg1i)
+g1<-ggplot(tab, aes(x=t, y=Fjt_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": import"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+```
+
+-   **Commentaire :** L'intégration des exportations demeure importante en 2020 (50%) bien qu'elle soit en baisse par rapport aux années 2000 où elle dépassait 60%. La montée en puissance des échanges avec l'Asie-Pacifique est très claire et s'accompagne corrélativement d'une baisse des échanges avec l'ensemble Europe-Méditerranée-Afrique. L'intégration est beaucoup plus faible en matière d'importation puisqu'en 2020 seuls 37% des produits sont importés de la région tandis qu'une part équivalente provient de la région Asie-Pacifique.
+
+### Asie Pacifique
+
+```{r}
+myreg<-"G3:AsiePacifique"
+
+Ft<-dt[reg1i==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fit<-dt[reg1i==myreg,.(Fit=sum(Fijkt)),.(t, reg1j)]
+tab<-left_join(Fit,Ft) %>% mutate(Fit_pct=100*Fit/Ft, region=reg1j)
+g1<-ggplot(tab, aes(x=t, y=Fit_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": Export"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+
+Ft<-dt[reg1j==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fjt<-dt[reg1j==myreg,.(Fjt=sum(Fijkt)),.(t, reg1i)]
+tab<-left_join(Fjt,Ft) %>% mutate(Fjt_pct=100*Fjt/Ft, region=reg1i)
+g1<-ggplot(tab, aes(x=t, y=Fjt_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": import"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+```
+
+-   **Commentaire :** Cette partie du Monde est celle qui connaît la dynamique d'intégration la plus forte et la plus continue tout au long de la période. Dans le cas des exportations on passe de 40% dans les années 1970 à 50% en 2020. Dans celui des importations, de 35% en 1970 à près de 70% en 2020. Cela entraîne une diminution des échanges avec les autres régions du Monde, en particulier les Amériques et l'Europe-Méditerranée-Afrique.
+
+### Reste du Monde
+
+```{r}
+
+myreg<-"G4:Reste du Monde"
+
+Ft<-dt[reg1i==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fit<-dt[reg1i==myreg,.(Fit=sum(Fijkt)),.(t, reg1j)]
+tab<-left_join(Fit,Ft) %>% mutate(Fit_pct=100*Fit/Ft, region=reg1j)
+g1<-ggplot(tab, aes(x=t, y=Fit_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": Export"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+
+Ft<-dt[reg1j==myreg,.(Ft=sum(Fijkt)),.(t)]
+Fjt<-dt[reg1j==myreg,.(Fjt=sum(Fijkt)),.(t, reg1i)]
+tab<-left_join(Fjt,Ft) %>% mutate(Fjt_pct=100*Fjt/Ft, region=reg1i)
+g1<-ggplot(tab, aes(x=t, y=Fjt_pct, col=region))+
+       geom_line() +
+       scale_x_continuous("Année") +
+       scale_y_log10("% export",lim=c(2,100),breaks=c(2,5,10,20,50,100)) +
+       ggtitle(paste(myreg, ": import"),subtitle = "Source : CEPII-CHELEM")  +
+theme(legend.position="bottom")
+ggplotly(g1)
+```
+
+-   **Commentaire :** Cette partie du Monde est clairement la moins intégrée même si la part des échanges interne qui ne dépassait pas 5 à 10% dans les années 1970 atteint aujourd'hui plus de 20% pour les importations comme les exportations. Le changement le plus remarquable est ici la baisse continue de la part de l'ensemble Europe-Méditerranée-Afrique au profit de l'Asie-Pacifique. Il faut sans doute y voir une stratégie d'intégration asiatique (et non pas eurasiatique) qui a été amorcée par le Japon et la Corée dans les années 1980 puis pousuivie par la Chine avec les nouvelles routes de la soie. Ce mouvement étant par ailleurs conforté par les stratégies de diversification de leurs échanges de l'Inde et de la Russie.
+
+## III. CARTOGRAPHIE DES ZONES D'INTEGRATION REGIONALE 
+
+Nous analysons ici la validité du découpage du monde en trois verticales en procédant à une évaluation de la part des échanges de chaque pays ou agrégat de pays vers les trois régions postulées par J.L. Guigou oui vers la région résiduelle "reste du monde". On considère trois situations possibles :
+
+- **intégration régionale forte** : plus de 50% des échanges sont dirigés vers l'une des trois régions verticales. 
+- **intégration régionale faible** : 40 à 50% des échanges sont dirigés vers l'une des trois régions verticales.
+- **absence d'intégration régionale** : moins de 40% des échanges sont dirigés vers l'une des trois régions verticales. Cette situation peut résulter soit d'un partage d'influence entre les trois verticales, soit d'un rôle important de l'espace résiduel "reste du monde".
+
+Nous présentons les cartes de régionalisation importations et exportations pour deux périodes décennales : en 1991-2000  et en  2011-2020
+
+### Exportations
+
+#### Exportations 1991-2000 
+
+```{r}
+
+
+
+Fij<-dt[k=="Total" & t>1990 & t <2001,.(Fij=sum(Fijkt)),.(i, reg1j)]
+Fi<-dt[k=="Total" & t>1990 & t <2001,.(Fi=sum(Fijkt)),.(i)]
+tab<-left_join(Fij,Fi) %>% mutate(pct=Fij/Fi)
+tab2<-tab %>% group_by(i) %>% filter(pct==max(pct))
+tab2$sup<-as.factor(tab2$pct>0.5)
+levels(tab2$sup)<-c("40-50 %",">50%")
+tab2$leg<-as.factor(paste(tab2$reg1j,tab2$sup))
+levels(tab2$leg)[7:8]<-"Aucune région > 40%"
+tab2$leg[tab2$pct<0.4]<-"Aucune région > 40%"
+map<-readRDS("data/World_Chelem.RDS")
+
+map<-merge(map, tab2, by.x="code", by.y="i",all.x=T,all.y=F)
+map<-map %>% filter(code !="XXX")
+mypal<-c("blue","lightblue","red","pink","orange","lightyellow","lightgreen")
+mf_theme("agolalight")
+mf_map(map, type="typo",
+       var="leg",
+       pal=mypal, 
+       lwd=0.1)
+mf_map(gui1, type="base",col=NA, add=T, lwd=1)
+mf_layout(title = "Principale destination des exportations 1991-2000",
+          credits = "Source : CEPII-Chelem - Auteur : C. Grasland, 2024",
+          frame = T,
+          arrow = F
+          )
+
+
+
+
+
+
+```
+
+- **Commentaire de la situation en 1991-2000**
+  + *La région Europe-Méditerranée-Afrique* est à son apogée et correspond à une zone de forte intégration des exportations(> 50%) de Vladivostok  à Capetown en passant par la Turquie et le Levant. Seuls font exception les satellites de la Russie (Belarus, Ukraine) et deux producteurs pétroliers africains tournés vers les USA (Nigéria et gGbon)
+    + *La région Amériques*  est également bien intégrée, du Nord au Sud, même si c'est à un degré plus faible dans le cas du Brésil et du Chili. Seuls font exceptions les USA qui exportent vers l'ensemble du Monde et n'envoient que 39.7% de leurs exportation vers leur propre région contre 29.3% vers la région Asie-Pacifique et 27.5% vers la région Europe-Méditerranée-Afrique.
+    + *La région Asie-Pacifique* connaît un début d'intégration mais avec une forte ouverture au reste du Monde. Le Japon exporte un peu plus de 40% vers sa région mais déjà 36% vers les Amériques contre un peu plus de 20% vers la région Europe-Méditerranée-Afrique. La Chine affiche un profil encore plus extraverti avec 37% de ses exportations vers sa région, 34% vers les Amériques et moins de 20% vers l'Europe-Méditerranée-Afrique. Il s'agit donc autant d'une intégration Pacifique que d'une intégration asiatique. 
+    + *L'Inde* constitue un cas particulier de pays qui exporte aussi bien vers l'Europe-Méditerranée-Afrique (36%), l'Asie-Pacifique (25%), les Amériques (20%) et le reste du Monde (17%), ce dernier flux correspondant à des relations fortes avec la Russie et les pays issus de l'URSS.
+
+
+#### Exportations 2011-2020 
+
+```{r}
+
+Fij<-dt[k=="Total" & t>2010,.(Fij=sum(Fijkt)),.(i, reg1j)]
+Fi<-dt[k=="Total" & t>2010,.(Fi=sum(Fijkt)),.(i)]
+tab<-left_join(Fij,Fi) %>% mutate(pct=Fij/Fi)
+tab2<-tab %>% group_by(i) %>% filter(pct==max(pct))
+tab2$sup<-as.factor(tab2$pct>0.5)
+levels(tab2$sup)<-c("40-50 %",">50%")
+tab2$leg<-as.factor(paste(tab2$reg1j,tab2$sup))
+levels(tab2$leg)[7:8]<-"Aucune région > 40%"
+tab2$leg[tab2$pct<0.4]<-"Aucune région > 40%"
+map<-readRDS("data/World_Chelem.RDS")
+
+map<-merge(map, tab2, by.x="code", by.y="i",all.x=T,all.y=F)
+map<-map %>% filter(code !="XXX")
+mypal<-c("blue","lightblue","red","pink","orange","lightyellow","lightgreen")
+mf_theme("agolalight")
+mf_map(map, type="typo",
+       var="leg",
+       pal=mypal, 
+       lwd=0.1)
+mf_map(gui1, type="base",col=NA, add=T, lwd=1)
+mf_layout(title = "Principale destination des exportations 2011-2020",
+          credits = "Source : CEPII-Chelem - Auteur : C. Grasland, 2024",
+          frame = T,
+          arrow = F
+          )
+
+```
+
+
+- **Commentaires de la situation en 2011-2020: **
+    + *La région Europe-Méditerranée-Afrique* demeure bien intégrée en matière d'exportations dans sa partie européenne et méditerranéenne puisque tous les pays y affichent des exportations destinées à plus de 50% vers la verticale, exception faite des pays du levant (Syrie, Liban, Israël, Jordanie). Mais la situation est désormais plus constrastée en Afrique subsaharienne où l'intégration est forte pour le Cameroun, la Côte d'Ivoire et le Kénya, mais faible pour le Ghana, le Nigéria, le Congo et l'Afrique australe. Quant aux autres pays ils dirigent leurs exportations en priorité vers la région Asie Pacifique même si l'intégration y demeure assez faible (40-50%) sauf dans le cas du Gabon.
+    + *La région Amériques* demeur également bien intégrée en matière d'exportations, notamment dans sa partie septentrionale (Canada, Mexique, Amérique centrale, Colombie, Venezuela). Mais on retrouve comme en 1991-2000 une intégration plus faible des USA (qui exportent beaucoup en dehors de leur région) et de l'Argentine. Le Chili apparaît quant à lui davantage tourné vers l'Asie Pacifique tandis que le Brésil montre désormais une part égale d'exportations (34%) vers les Amériques  et l'Asie-Pacifique.
+    
+    + *La région Asie-Pacifique* polarise beaucoup plus fortement qu'en 1991-2000 son espace interne mais aussi l'ensemble des pays du Golfe Persique qui assurent son approvisionnement en hydrocarbure ainsi que le Gabon. Elle polarise faiblement une partie de l'Afrique subsaharienne et le Chili. La Chine apparait la moins intégrée du fait du déploiement de ses relations au niveau mondial plutôt qu'à l'intérieur de la seule région Asie-Pacifique. Elle envoie approximativement autant vers l'Asie-Pacifique (31%) , Les Amériques (30%)  et l'Europe-Méditerranée-Afrique (26%).
+    + *L'Inde* quant à elle maintient une position de struct équilibre entre les quatre régions du Monde, envoyant de 20 à 30% vers chacune d'entre elles.
+  
+### Importations
+  
+#### Importations 1991-2000
+
+```{r}
+
+Fji<-dt[k=="Total" & t>1990 & t <2001,.(Fji=sum(Fijkt)),.(j, reg1i)]
+Fj<-dt[k=="Total"& t>1990 & t <2001,.(Fj=sum(Fijkt)),.(j)]
+tab<-inner_join(Fji,Fj) %>% mutate(pct=Fji/Fj)
+tab2<-tab %>% group_by(j) %>% filter(pct==max(pct))
+tab2$sup<-as.factor(tab2$pct>0.5)
+levels(tab2$sup)<-c("40-50 %",">50%")
+tab2$leg<-as.factor(paste(tab2$reg1i,tab2$sup))
+levels(tab2$leg)[7:8]<-"Aucune région > 40%"
+tab2$leg[tab2$pct<0.4]<-"Aucune région > 40%"
+map<-readRDS("data/World_Chelem.RDS")
+map<-merge(map, tab2, by.x="code", by.y="j",all.x=T,all.y=F)
+mypal<-c("blue","lightblue","red","pink","orange","lightyellow","lightgreen")
+mf_theme("agolalight")
+mf_map(map, type="typo",var="leg",pal=mypal,alpha="pct", lwd=0.1)
+mf_map(gui1, type="base",col=NA, add=T, lwd=1)
+mf_layout(title = "Principale région d'origine des importations 1991-2000",
+          credits = "Source : CEPII-Chelem - Auteur : C. Grasland, 2024",
+          frame = T,
+          arrow = F
+          )
+
+
+
+```
+
+
+- **Commentaires :**
+    + *La région Europe-Méditerranée-Afrique* en 1991-2010 est très fortement intégré pour les importations et étend même son influence dans ce domaine au Moyen-Orient et à l'Inde. Même les pays africains qui exportent davantage vers les Amériques (Nigéria, Gabon) réalisent la majorité de leurs importations depuis la région Europe-Méditerranée-Afrique. Il s'agit donc d'un moment historique privilégié où cette verticale aurait pu se mettre en place, ce que suggérait d'ailleurs de nombreux chercheurs et des experts dans des rapports de l'IPEMED ou du programme ESPON. 
+    + *La région Amériques* montre également à cette date une forte intégration régionale de ses importations qui est en phase avec la signature des traités de libre échange du MERCOSUR (1991) ou de l'ALENA (1994). Les USA demeurent certes plus extravertis du fait de l'ouverture croissante du commerce transpacifique et ils échangent autant avec l'Asie Pacifique (37%) qu'avec leur propre région (36%).
+    + *La région Asie-Pacifique* témoigne quant à elle d'une très forte intégration régionale de ses importations, nettement plus forte que celle des exportations qui sont davantage destinées au reste du Monde. L'ASEAN s'élargit à de nouveau pays et la Chine commence à devenir un rouage essentiel de l'intégration productive dans cette partie du Monde.
+    + *L'Inde* demeure provisoirement intégrée faiblement à l'espace Europe-Méditerranée-Afrique (43%) mais elle a déjà des lines importants avec l'Asie-Pacifique (28%) et le reste du Monde (18%) en raison de ses importations d'énergie et de minerais depuis les pays du Golfe ou la Russie. 
+
+#### Importations 2011-2020
+
+```{r}
+
+Fji<-dt[k=="Total" & t>2010,.(Fji=sum(Fijkt)),.(j, reg1i)]
+Fj<-dt[k=="Total" & t>2010,.(Fj=sum(Fijkt)),.(j)]
+tab<-inner_join(Fji,Fj) %>% mutate(pct=Fji/Fj)
+tab2<-tab %>% group_by(j) %>% filter(pct==max(pct))
+tab2$sup<-as.factor(tab2$pct>0.5)
+levels(tab2$sup)<-c("40-50 %",">50%")
+tab2$leg<-as.factor(paste(tab2$reg1i,tab2$sup))
+levels(tab2$leg)[7:8]<-"Aucune région > 40%"
+tab2$leg[tab2$pct<0.4]<-"Aucune région > 40%"
+map<-readRDS("data/World_Chelem.RDS")
+map<-merge(map, tab2, by.x="code", by.y="j",all.x=T,all.y=F)
+mypal<-c("blue","lightblue","red","pink","orange","lightyellow","lightgreen")
+mf_theme("agolalight")
+mf_map(map, type="typo",var="leg",pal=mypal,alpha="pct", lwd=0.1)
+mf_map(gui1, type="base",col=NA, add=T, lwd=1)
+mf_layout(title = "Principale région d'origine des importations 2011-2020",
+          credits = "Source : CEPII-Chelem - Auteur : C. Grasland, 2024",
+          frame = T,
+          arrow = F
+          )
+
+
+
+```
+
+- **Commentaires :**
+    + *La région Europe-Méditerranée-Afrique* présente en 2011-2020 en matière d'importation des caractéristiques assez proches de celles notées pour les exportations à cette même date. Mais avec un dégré d'intégration généralement plus faible, notamment en Turquie ou en Russie. Elle supplante toutefois de justesse l'Asie Pacifique dans l'ensemble des pays africains, exception faite de l'Egype, du Kenya et du Nigéria qui n'affichent pas d'intégration régionale dominante.
+    + *La région Amériques* apparaît nettement plus intégrée mais avec deux exceptions de taille : le Brésil et les USA. Ces deux pays importent en effet moins de 40% de leurs échanges depuis cette région et sont en pratique partagés entre des influences multiples.
+    + *La région Asie-Pacifique* apparaît désormais comme la plus fortement intégrée, y compris la Chine qui reçoit plus de 40% de ses importations de sa région d'appartenance. 
+    + *L'Inde* mais aussi les *pays pétroliers du Golfe* et les pays d'*Asie Centrale* ne se rattachent à aucune des trois régions verticales. Cela peut s'expliquer par une diversité des origines de leurs importations (Inde, Golfe) mais aussi par une influence toujours importante de la Russie dans son voisinage proche. Et peut-être aussi par une intégration, même si elle demeure faible de cette région résiduelle. 
+    
+    
+
+  
+    
+    
+## IV. RESEAUX DE RELATIONS PREFERENTIELLES ENTRE SOUS-REGIONS
+
+Nous procédons maintenant à une analyse plus détaillée des relations entre les 12 sous-régions afin de vérifier si les liens observés au niveau macroscopiques sont confirmés au niveau infra-régional. Pour cela, nous allons confronter les flux observés entre pays à ceux qui seraient obtenus dans l'hypothèse d'un modèle aléatoire d'indifférence à la distance.
+
+### Flux Totaux 1971-1980
+
+```{r}
+
+t1<-1971
+t2<-1980
+kk<-"Total"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Tous produits - 1971-1980") 
+```
+
+-   **Commentaire** : Au lendemain des indépendances des pays africains, l'Europe domine largement le commerce mondial et polarise de façon préférentielle les échanges commercieux avec les pays d'Afrique et de Méditerranée. Elle intégère également l'URSS dans sa zone d'échange préféentielle. L'Amérique du Nord constitue le second pôle des échanges commerciaux et noue des échanges préférentiels avec l'Asie pacifique mais aussi le proche et Moyen orient pour son alimentation en hydrocarbure. un début d'intégration apparaît en Asie-Pacifique.
+
+### Flux Totaux 1981-1990
+
+```{r}
+
+t1<-1981
+t2<-1990
+kk<-"Total"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Tous produits - 1981-1990") 
+```
+
+-   **Commentaire** : Dans la décennie qui précède la chute de l'Union soviétique, les échanges préférentiels de l'Europe se renforcent avec l'URSS mais aussi les pays du Golfe Persique. Ils demeurent important avec la Méditerranée mais commencent à s'affaiblir avec l'Afrique ou d'autres acteurs régionaux d'Asie (Japon) et d'Amérique (USA) développent désormais à leur tour des relations préférentiels. Dans le même temps, l'intégration entre les dxeux rives du Pacifique se renforce grâce à la conteneurisation et la diminution des coûts de transports.
+
+### Flux Totaux 1991-2000
+
+```{r}
+
+t1<-1991
+t2<-2000
+kk<-"Total"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Tous produits - 1991-2000") 
+```
+
+-   **Commentaire** : Avec la supposée "fin de l'histoire" et la domination sans partage de l'hyperpuissance américaine, le commerce mondial prend une forme triadique presque parfaite. C'est sans doute le moment de l'histoire où les trois "verticales" apparaissent de la façon la plus claire. A une nuance près qui est le fait que l'Afrique subsaharienne demeure de plus en plus une zone aux influences multiples tandis que la Russie et les pays de l'ex union soviétique accroissent de plus en plus leurs échanges préférentiels avec l'Europe. L'Asie du Sud et le Golfe Persique quant à eux sont en situation intermédiaire mais nouent des liens entre eux, ainsi qu'avec les pays d'Afrique et de Méditerranée.
+
+### Flux Totaux 2001-2010
+
+```{r}
+
+t1<-2001
+t2<-2010
+kk<-"Total"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Tous produits - 2001-2010") 
+```
+
+**- Commentaire:** La montée en puissance de la Chine accentue la polarisation du Monde entre trois régions et s'accompagne d'un éloignement de plus important de l'Afrique par rapport à l'Europe. L'Asie du Sud et les pays du Golfe basculent dans la zone d'échange préférentiels de l'Asie. Les Amériques maintiennent des échanges préférentiels mais subissent l'influence croissante et asymétrique de l'Asie pacifique qui exporte vers eux mais n'importe guère. Le déficit commercial des USA par rapport à la Chine se creuse de plus en plus.
+
+### Flux totaux - 2011-2020
+
+```{r}
+
+t1<-2011
+t2<-2020
+kk<-"Total"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Tous produits - 2011-2020") 
+```
+
+**- Commentaire:** L'Asie de l'Est constitue désormais l'acteur majeur du commerce mondial et inclue dans sa zone d'échanges préfrentiels non seulement l'Asie du Sud et les pays du Golfe mais aussi l'Afrique subsaharienne et peut-être l'Amérique du Sud. Les relations préférentielles de l'Europe se limitent à elle-même ainsi que ses voisins les plus proches à l'Est et au Sud. Même chose pour les Amériques où l'intégration concerne désormais surtout la partie septentrionale et centrale.
+
+### Energie - 2011-2020
+
+```{r}
+
+t1<-2011
+t2<-2020
+kk<-"Energie"
+test<-dt %>% filter(t>=t1,t<=t2,k==kk) %>% 
+              group_by(reg2i,reg2j) %>%
+              summarise(Fij=  sum(Fijkt),
+                        Eij = sum(Eijkt))%>%
+              select(i=reg2i, j=reg2j, Fij, Eij)
+
+              
+
+nodesi<-test %>% group_by(i) %>% summarise(Fi=sum(Fij)) %>% 
+                mutate(label=i) %>%
+                select(label,Fi)
+nodesj<-test %>% group_by(j) %>% summarise(Fj=sum(Fij)) %>% 
+  mutate(label=j) %>%
+  select(label,Fj)
+nodes<-left_join(nodesi,nodesj)
+nodes$VOL<-nodes$Fi+nodes$Fj
+nodes$id<-rank(nodes$label)
+nodes$value<-sqrt(100*nodes$VOL/max(nodes$VOL))
+nodes<-nodes %>% arrange(label)
+nodes$color.background<-c(rep("lightblue",3),  rep("pink",3),rep("lightyellow",3),rep("lightgreen",3))
+nodes$color.border<-"black"
+nodesi<-nodes[,c("id","label")]
+names(nodesi)<-c("from","i")
+edges<-test %>% left_join(nodesi)
+nodesj<-nodes[,c("id","label")]
+names(nodesj)<-c("to","j")
+edges<-edges %>% left_join(nodesj)
+edges$width=sqrt(100*edges$Fij/max(edges$Fij))
+edges$arrows<-"top"
+
+edges2<-edges %>% filter(Fij>Eij)
+visNetwork(nodes, edges2, height = "500px", width = "100%",main = "Echanges préférentiels entre sous-régions du Monde", submain = "Produits énergétiques - 2011-2020") 
+```
