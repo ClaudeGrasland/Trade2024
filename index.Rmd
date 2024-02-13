@@ -279,6 +279,7 @@ ggplotly(g)
 
 -   **Commentaire :** la décomposition des niveaux d'intégration régionale par famille de produits met en évidence des différences notables, notamment en ce qui concerne les produits énergétiques (gaz, pétrole, charbon, ...) qui voient leur niveau d'intégration diminuer très fortement entre les deux chocs prétroliers (35% en 1977) avant de remonter ensuite mais en restant à un niveau beaucoup plus faible que les autres produits. A contrario, les échanges de produits agricoles qui avaient un niveau d'intégration assez faible dans les années 1970 (environ 50%) connaissent une forte progression dans les années 1980 et deviennent les produits les plus intégrés régionalement avec la chimie et les minerais. Les produits textils connaissent une évolution inverse, en relation avec la concentration croissante de la production en Asie. Sans détailler les autres produits, on remarque que les vingt dernières années (2000-2020) montrent dans la quasi totalité des produits une baisse de l'intégration régionale, qu'il faut probablement mettre en relation avec la montée en puissance de la Chine.
 
+
 ### Par grande région
 
 ```{r}
@@ -312,6 +313,16 @@ ggplotly(g2)
 #g2
 
 ```
+
+**Commentaires** : 
+
+- L’analyse des exportations montre une forte intégration de la région Europe-Méditerranée Afrique tout au long de la période mais avec une tendance à la baisse dans les années 2000 et une stabilisation actuelle autour de 70% en 2020. Dans le cas des Amériques, l’intégration avait fortement augmenté dans les années 1990 avant de redescendre pour se stabiliser autour de 50% en 2020. La région Asie-Pacifique part d’une faible intégration dans les années 1970-1980 mais enregistre ensuitre des progrès continus pour atteindre presque 50% en 2020
+
+- L’analyse des importations montre une évolution assez similaire à celle des exportations dans le cas de la région Europe-Méditerranée-Afrique pour aboutir également à un niveau de 70%. La situation est très différente dans les deux autres régions du Monde car on assiste à une baisse continue de l’intégration des Amériques (moins de 40% en 2020) et une hausse continue de celle-ci dans la région Asie-Pacifique (presque 60% en 2020).
+
+Il faut toutefois noter que le maintien d’une forte intégration de la région Europe-Méditerranée-Afrique est en grande partie liée aux échanges internes à la seule Union Européenne et pas nécessairement aux échanges Nord-Sud entre l’Europe et la méditerranée ou l’Europe et l’Afrique. Il est donc nécessaire de regarder plus en détail les échanges de chaque pays ou agrégat de pays avec les trois grandes régions du Monde
+
+
 
 
 ### Europe - Méditerranée - Afrique
@@ -438,6 +449,52 @@ ggplotly(g1)
 ```
 
 -   **Commentaire :** Cette partie du Monde est clairement la moins intégrée même si la part des échanges interne qui ne dépassait pas 5 à 10% dans les années 1970 atteint aujourd'hui plus de 20% pour les importations comme les exportations. Le changement le plus remarquable est ici la baisse continue de la part de l'ensemble Europe-Méditerranée-Afrique au profit de l'Asie-Pacifique. Il faut sans doute y voir une stratégie d'intégration asiatique (et non pas eurasiatique) qui a été amorcée par le Japon et la Corée dans les années 1980 puis pousuivie par la Chine avec les nouvelles routes de la soie. Ce mouvement étant par ailleurs conforté par les stratégies de diversification de leurs échanges de l'Inde et de la Russie.
+
+
+### Echanges Nord-Nord, Nord-Sud et Sud-Sud
+
+On peut imaginer une autre lecture centrée sur la division du Monde entre pays du Nord et pays du Sud. Mais cela impose de choisir une typologie qui est par définition évolutive au cours du temps. 
+
+```{r}
+dt$Nordi<-as.factor(dt$reg2i)
+levels(dt$Nordi)<-c("Nord","Sud","Sud","Nord","Sud","Sud","Nord","Sud","Sud","Nord","Sud","Sud")
+dt$Nordi<-as.character(dt$Nordi)
+dt$Nordi[dt$i=="CHN"]<-"BRICS"
+dt$Nordi[dt$i=="RUS"]<-"BRICS"
+dt$Nordi[dt$i=="BRA"]<-"BRICS"
+dt$Nordi[dt$i=="IND"]<-"BRICS"
+dt$Nordi[dt$i=="SAF"]<-"BRICS"
+
+dt$Nordj<-as.factor(dt$reg2j)
+levels(dt$Nordj)<-c("Nord","Sud","Sud","Nord","Sud","Sud","Nord","Sud","Sud","Sud","Sud","Sud")
+dt$Nordj<-as.character(dt$Nordj)
+dt$Nordj[dt$j=="CHN"]<-"BRICS"
+dt$Nordj[dt$j=="RUS"]<-"BRICS"
+dt$Nordj[dt$j=="BRA"]<-"BRICS"
+dt$Nordj[dt$j=="IND"]<-"BRICS"
+dt$Nordj[dt$j=="SAF"]<-"BRICS"
+dt$NS<-paste(dt$Nordi,dt$Nordj,sep="-")
+dt$NS<-as.factor(dt$NS)
+levels(dt$NS)
+levels(dt$NS)<-c("4.BRICS-BRICS", "3.NORD-BRICS",  "5.BRICS-SUD" ,  "3.NORD-BRICS" , "1.NORD-NORD",   "2.NORD-SUD", "5.BRICS-SUD" ,  "2.NORD-SUD"  ,  "6.SUD-SUD")
+dt$NS<-as.character(dt$NS)
+
+Fit<-dt[k=="Total",.(Fit=sum(Fijkt)),.(NS,t)]
+Ft<-dt[k=="Total",.(Ft=sum(Fijkt)),.(t)]
+
+tab<-left_join(Fit,Ft) %>% mutate(pct=100*Fit/Ft)
+g<-ggplot(tab) + aes(x=t, y=pct,fill=NS) +
+               geom_bar(stat="identity") +
+       scale_x_continuous("Année") +
+       scale_y_continuous("% flux mondiaux") +
+       ggtitle("Evolution des échanges entre Nord, Sud et BRICS",subtitle = "Source : CEPII, Base CHELEM")
+ggplotly(g)
+
+
+```
+
+- **Commentaire** : La part des échanges entre pays du Nord (Europe, USA, Canada, Japon, Corée, Hong-Kong, Taiwan) est passée de 68% en 1988 à 40% en 2020. Les échanges entre pays du Sud (hors BRICS) est demeurée quant à elle très faible, passant de 3% en 1990 à un peu moins de 6% en 2020. Les échanges entre BRICS sont tout aussi faibles (2.5% en 2020). Ldes échanges Nord-Sud sont demeurés stables ou en légère diminution, passant de 25 à 20%. Le phénomène réellement nouveau est la montée des échanges entre les BRICS et les pays du Nord qui passent de 10% en 1990 à près de 20% en 2020 et surtout la montée des échanges entre les BRICS et les pays du Sud qui passent de 2% en 1990 à 13% en 2020. 
+
 
 ## III. CARTOGRAPHIE DES ZONES D'INTEGRATION REGIONALE 
 
